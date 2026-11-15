@@ -1,19 +1,13 @@
-# Local environments and caches
 .venv/
-venv/
+.ipynb_checkpoints/
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .DS_Store
-tmp/
-# LaTeX intermediates; PDFs and source files are versioned
+.env
+.env.*
+# LaTeX intermediates
 *.aux
 *.log
 *.out
 *.toc
 *.synctex.gz
-# Duplicate delivery archives
-*.zip
-# Local secrets
-.env
-.env.*
