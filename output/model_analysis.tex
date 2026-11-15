@@ -1,0 +1,437 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=22mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,longtable,array,graphicx,xcolor,hyperref,fancyhdr}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+\setlength{\headheight}{14pt}\setlength{\tabcolsep}{4pt}\setlength{\emergencystretch}{2em}
+\setlength{\parindent}{0pt}\setlength{\parskip}{6pt}
+\newcommand{\M}{\mathrm{M}}\newcommand{\s}{\mathrm{s}}\newcommand{\dd}{\mathrm{d}}
+\newcommand{\R}{\textbf{Reconstruction. }}
+\pagestyle{fancy}\fancyhf{}\lhead{Stoddard et al.: model audit and replication}\rfoot{\thepage}
+\title{Bispecific ADC modelling:\\equations, assumptions, optimisation, and replication audit}
+\author{Technical analysis of Stoddard et al. (2026)\\and the supplied supplementary material}
+\date{15 November 2026}
+\begin{document}\maketitle
+\begin{abstract}
+This document separates reported facts, mathematical consequences, and implementation choices. It explains the route from binding kinetics to target occupancy, internalisation, cell killing, and constrained optimisation. The article and three-page supplement do not publish the complete ODEs, a parameter file, or optimisation settings. Consequently, the accompanying code is an executable, mass-balanced reconstruction of the stated workflow, not a verified numerical reproduction of the authors' implementation. Unreported values are exposed rather than fitted silently to the plots. No model improvements are claimed.
+\end{abstract}
+\tableofcontents\newpage
+
+\section{Evidence and scope}
+The primary source is Stoddard et al., \emph{Model-optimized bispecific antibodies improve the selectivity of antibody--drug conjugates for tumors}, DOI \href{https://doi.org/10.20935/AcadDrug8407}{10.20935/AcadDrug8407} [P]. Page numbers below refer to its 17-page PDF. [S] denotes the supplied three-page supplement, containing Figures S1--S5 and Table S1. [G] denotes the cited Sengers et al. (2016) binding model; [M] denotes the cited Mould et al. (2007) alemtuzumab PK study. External references are listed at the end.
+
+\textbf{Evidence labels:} ``Reported'' means stated in [P] or [S]; ``derived'' means calculated from reported information; ``source-reference'' means found in a cited antecedent but not confirmed as adopted numerically by [P]; ``reconstruction'' means an explicit choice needed for runnable code.
+
+The entire supplied paper and supplement were text-inspected; model figures and supplementary tables were also visually checked. The publisher's additional supplement download endpoint was checked but returned HTTP 403. No author code was available in the supplied files. This does not establish that no code exists elsewhere.
+
+\section{Abbreviations, variables, and units}
+\subsection{Abbreviations relevant to the model}
+\begin{longtable}{p{.19\linewidth}p{.75\linewidth}}
+\toprule Abbreviation & Meaning\\\midrule\endhead
+ADC & Antibody--drug conjugate.\\
+bsADC & Bispecific antibody--drug conjugate: one binding arm for each of two targets.\\
+mAb; IgG & Monoclonal antibody; immunoglobulin G.\\
+PK; PD & Pharmacokinetics (drug disposition); pharmacodynamics (drug effect).\\
+RO & Receptor occupancy: fraction of target sites bound.\\
+PK/RO; PK/PD & Coupled pharmacokinetic/receptor-occupancy or pharmacokinetic/pharmacodynamic model.\\
+OTOT & On-target, off-tumor toxicity.\\
+ODE & Ordinary differential equation.\\
+2D; 3D & Two-dimensional membrane diffusion; three-dimensional solution diffusion.\\
+DAR & Drug-to-antibody ratio; here one payload per antibody.\\
+$E_{\max}$; $EC_{50}$ & Maximum effect; concentration giving half that maximum effect.\\
+T1; T2; T12 & Target 1; target 2; population expressing both targets.\\
+HER2; TROP2; BCMA & Human epidermal growth factor receptor 2; trophoblast cell surface antigen 2; B-cell maturation antigen. These contextual examples are not the identities assigned to hypothetical T1/T2.\\
+EGFR; MET; gpNMB; KIT & Epidermal growth factor receptor; MET receptor tyrosine kinase; glycoprotein non-metastatic melanoma protein B; KIT receptor tyrosine kinase (background examples).\\
+TMDD & Target-mediated drug disposition.\\
+NSGA-II & Nondominated Sorting Genetic Algorithm II; reconstruction's Platypus algorithm, not identified by the authors.\\
+\bottomrule
+\end{longtable}
+
+\subsection{Complete notation used here}
+Notation is unified here; it is not claimed to be the unpublished code's variable names. Time is in seconds unless explicitly shown in hours. $1\,\M=1\,\mathrm{mol/L}$ and $1\,\mathrm{L}=1\,\mathrm{dm^3}$.
+\begin{longtable}{p{.22\linewidth}p{.47\linewidth}p{.25\linewidth}}
+\toprule Symbol & Definition & Units\\\midrule\endhead
+$t,t_*$ & Time; endpoint for scoring & s\\
+$C_c,C_p$ & Free ADC concentration in central/peripheral compartment & mol/L\\
+$V_c,V_p$ & Central/peripheral volume & L\\
+$CL,Q$ & Systemic clearance; distribution clearance & L/s\\
+$D_0,\tau,u(t)$ & Dose; infusion duration; infusion input rate & mol; s; mol/s\\
+$j$ & Population index: $T,H1,H2,H12,H0$ (tumor, healthy single/dual/no-target) & index\\
+$f_j,N_j$ & Cell-population fraction; number of cells & fraction; cells\\
+$a_j,v_j,S_j$ & Area per cell; volume per cell; total area $N_ja_j$ & dm$^2$; L; dm$^2$\\
+$\rho_{ij}$ & Baseline total density of target $i$ in population $j$ & mol/dm$^2$\\
+$R_{ij}$ & Free target surface density & mol/dm$^2$\\
+$B_{1j},B_{2j}$ & ADC bound only to T1 or only to T2 & mol/dm$^2$\\
+$D_j$ & One ADC simultaneously bound to T1 and T2 & mol/dm$^2$\\
+$k_{\mathrm{on},i},k_{\mathrm{off},i}$ & First-binding association and dissociation constants & M$^{-1}$s$^{-1}$; s$^{-1}$\\
+$K_{D,i}$ & Monovalent equilibrium dissociation constant & M\\
+$\ell_i,q_i$ & 2D association to target $i$; loss of bond $i$ from dual complex & dm$^2$mol$^{-1}$s$^{-1}$; s$^{-1}$\\
+$\mathcal D_i,N_A$ & Membrane diffusion coefficient; Avogadro constant & dm$^2$/s; mol$^{-1}$\\
+$\delta_i,\delta_D$ & Target turnover/single-complex uptake rate; dual-complex uptake rate & s$^{-1}$\\
+$s_{ij}$ & Receptor synthesis rate, here $\delta_i\rho_{ij}$ & mol dm$^{-2}$s$^{-1}$\\
+$v_{ij},w_{ij},J_j$ & Net first-binding flux; net second-binding flux; uptake flux & mol dm$^{-2}$s$^{-1}$\\
+$A_j,I_j$ & Accumulated intracellular concentration; amount per cell ($I_j=v_jA_j$) & M; mol\\
+$\theta_{ij}$ & Target occupancy & fraction\\
+$e_j,E,H$ & Population kill fraction; tumor efficacy; weighted healthy toxicity & fraction\\
+$\mathcal R$ & Efficacy-to-toxicity ratio $E/H$ & dimensionless\\
+$M_{\rm elim}$ & Cumulative cleared ADC amount & mol\\
+$\boldsymbol x,\boldsymbol z$ & Four binding rates; their base-10 logarithms & mixed; log coordinates\\
+\bottomrule
+\end{longtable}
+
+\section{Authors' assumptions with short justifications}
+Justifications below are 3--8-word explanatory rationales, not quotations or experimentally established validations. ``Implicit'' entries describe the stated model scope, not independently confirmed source-code behaviour.
+\begin{longtable}{p{.57\linewidth}p{.29\linewidth}p{.08\linewidth}}
+\toprule Assumption & Short justification & Source\\\midrule\endhead
+Sequential first 3D binding, then membrane 2D binding & Represents avidity through sequential binding & P3\\
+Surface diffusion enables rapid second-target engagement & Captures membrane confinement of reactants & P3\\
+Both targets turn over twice hourly & Standardises target trafficking across comparisons & P4\\
+Bound-complex internalisation follows target turnover & Links payload delivery to receptor trafficking & P4,13\\
+Neither target sheds into systemic circulation & Excludes soluble target binding sinks & P4\\
+Payload potency is $4\,\mu$M in main analyses & Fixes payload sensitivity across comparisons & P4\\
+Free payload PK is omitted & Isolates target-mediated delivery selectivity & P4\\
+ADC follows two-compartment PK & Approximates systemic distribution and elimination & P4--5\\
+All modeled target populations access central free drug & Couples cell binding to shared exposure & P4--5\\
+Every tumor cell expresses both targets & Isolates dual-target selectivity under idealisation & P4,12\\
+Healthy cells occupy four expression categories & Represents single-positive and double-positive tissues & P5\\
+Healthy expressing cells have 25\% tumor density & Represents reduced normal-tissue antigen expression & P5\\
+Population frequencies remain fixed across simulations & Holds tissue composition constant across comparisons & P5\\
+Monospecific ADC is bivalent and gains avidity & Ensures a mechanistically comparable baseline & P5\\
+Single $4\,\mu$mol dose over two hours & Standardises exposure across candidate molecules & P4\\
+DAR equals one & Makes uptake equivalent to payload delivery & P6\\
+Internalisation releases payload one-for-one & Converts antibody uptake into intracellular payload & P13\\
+Same payload sensitivity in healthy and tumor cells & Attributes selectivity to differential delivery & P6,13\\
+Emax response has unit Hill exponent & Uses a simple saturating effect relationship & P6\\
+Toxicity averages over all healthy cells & Aggregates population effects into one endpoint & P6\\
+Initial optimisation uses equal target density/turnover & Creates a symmetric reference design problem & P6,8\\
+Robustness sweeps fix optimised binding rates & Tests transfer across expression contexts & P6,10\\
+Reoptimisation allows unequal target densities & Tailors binding kinetics to target abundance & P6,11\\
+Tumor heterogeneity and evolution are omitted & Focuses on initial targeting selectivity & P12--13\\
+Bystander killing is absent from present framework & Excludes unmodelled extracellular payload redistribution & P13\\
+Linker instability/premature release is not represented & Isolates target-mediated toxicity mechanisms & P13\\
+Recycling and distinct complex trafficking are not resolved & Simplifies uptake to target turnover & P13\\
+Tissue-specific toxicity severity is not represented & Uses cell-loss fraction as toxicity proxy & P13\\
+\bottomrule
+\end{longtable}
+The complete extended receptor synthesis law, dual-complex turnover combination rule, and cell-death feedback into PK are not given. The reconstruction uses constant receptor synthesis and fixed cell populations, with cell kill as a readout, not a cell-number ODE. These are transparent closures, not additional assumptions attributed to the authors.
+
+\section{Reported, derived, and missing quantities}
+\subsection{Reported numeric inputs}
+\begin{longtable}{p{.45\linewidth}p{.35\linewidth}p{.14\linewidth}}
+\toprule Quantity & Value & Evidence\\\midrule\endhead
+Dose; infusion time & $4\times10^{-6}$ mol; 2 h & P4\\
+Infusion rate (derived) & $2\,\mu$mol/h $=5.556\times10^{-10}$ mol/s & P4\\
+Main payload $EC_{50}$; DAR & $4\,\mu$M $=4\times10^{-6}$ M; 1 & P4,6\\
+Target turnover phrase & ``twice-hourly'' for both & P4\\
+First-order interpretation (derived) & $2\,\mathrm{h^{-1}}=5.556\times10^{-4}\,\mathrm{s^{-1}}$ & interpretation\\
+Equal tumor target densities & $\rho_{1T}=\rho_{2T}=10^{-10}$ mol/dm$^2$ & P6\\
+Unequal tumor densities & $10^{-9}$ and $5\times10^{-11}$ mol/dm$^2$ & P6,11\\
+Healthy/tumor density multiplier & 0.25 for each expressed target & P5\\
+Healthy-kill optimisation threshold & less than 1\% of healthy cells & P6\\
+Low-expression scenario density & $10^{-13}$ mol/dm$^2$ per target & S3\\
+Low-expression payload $EC_{50}$ & 10 nM $=10^{-8}$ M & S3\\
+Cell area used for Table S1 & $500\,\mu\mathrm m^2=5\times10^{-8}$ dm$^2$ & S1\\
+Time traces (visual inference) & approximately 0--24 h, axis to 25 h & P7,10--11\\
+\bottomrule
+\end{longtable}
+A rate $2\,\mathrm{h^{-1}}$ has mean lifetime 30 min and half-life $\ln 2/2=0.3466$ h $=20.79$ min. It is not the same as a 30-minute half-life (which implies $1.3863\,\mathrm{h^{-1}}$). The publication does not disambiguate this in an equation. A first-order population with this rate turns over $1-e^{-2}=86.47\%$ in one hour without replenishment; ``twice hourly'' does not mean a linear 200\% probability.
+
+\begin{center}\begin{tabular}{lrrr}\toprule
+Population & Frequency (\%) & T1 density (\% tumor) & T2 density (\% tumor)\\\midrule
+Tumor & 0.03 &100&100\\
+Healthy no targets &79&0&0\\
+Healthy T1 only &10&25&0\\
+Healthy T2 only &10&0&25\\
+Healthy both &1&25&25\\\bottomrule
+\end{tabular}\end{center}
+These percentages sum to 100.03\%, although the caption calls them fractions of all cells. Healthy rows sum to 100\%. For toxicity we use healthy weights $(0.79,0.10,0.10,0.01)$. For binding burdens the demonstration uses the published fractions literally against a reference total cell count; renormalising all fractions is another unconfirmed convention.
+
+\subsection{Binding scenarios and calculated affinities}
+\begin{center}\small\begin{tabular}{lrrrrrr}\toprule
+Scenario & $k_{on,1}$ & $k_{off,1}$ & $K_{D,1}$ & $k_{on,2}$ & $k_{off,2}$ & $K_{D,2}$\\\midrule
+Unoptimised bsADC & $4.6\,10^5$ & $3.4\,10^{-4}$ & 0.739 nM & $4.6\,10^5$ & $3.4\,10^{-4}$ &0.739 nM\\
+Monospecific & $4.6\,10^5$ & $3.4\,10^{-4}$ &0.739 nM &--&--&--\\
+Optimised Fig. 6 & $10^4$ &1&100 $\mu$M &$10^4$&1&100 $\mu$M\\
+Reoptimised Fig. 8 & $10^4$ &1&100 $\mu$M &$5\,10^4$&1&20 $\mu$M\\\bottomrule
+\end{tabular}\end{center}
+On-rates are in M$^{-1}$s$^{-1}$; off-rates are in s$^{-1}$. The optimised monovalent affinity is approximately 135,294-fold weaker than the starting affinity. Bond dissociation half-life falls from about 34 minutes to 0.693 s. Neither number is the residence time of a dually bound antibody, which can rebind before escaping.
+
+\subsection{Contextual expression-density conversions}
+For $n$ molecules per cell, $\rho=n/(N_Aa)$. At $a=500\,\mu$m$^2$ and $N_A=6.02214076\times10^{23}$ mol$^{-1}$:
+\begin{center}\begin{tabular}{lrr}\toprule
+Target & Molecules/cell & Density (mol/dm$^2$)\\\midrule
+HER2 & $2\times10^6$ & $6.64\times10^{-11}$\\
+TROP2 & $10^5$--$5\times10^5$ & $3.32\times10^{-12}$--$1.66\times10^{-11}$\\
+BCMA & $10^3$--$9\times10^3$ & $3.32\times10^{-14}$--$2.99\times10^{-13}$\\\bottomrule
+\end{tabular}\end{center}
+These reproduce the arithmetic in Table S1; the printed upper TROP2 bound omits the multiplication sign/base 10. The listed references [35--37] do not match the main paper's bibliography (which concerns heterogeneity/evolution), so the underlying biological density references are not independently established here. Table S1's area is not explicitly declared as the area used in the simulations.
+
+\subsection{Missing inputs and runnable demonstration choices}
+\begin{longtable}{p{.36\linewidth}p{.32\linewidth}p{.26\linewidth}}
+\toprule Input & Reconstruction value & Status\\\midrule\endhead
+$V_c,V_p,Q$ & 11.3 L, 41.5 L, 1.05 L/h & [M] reference values; adoption unconfirmed\\
+$CL$ & 0.1 L/h & Demonstration only; not reported\\
+Reference total cell count & $3\times10^{13}$ & Demonstration only; not reported\\
+Area per cell & $5\times10^{-8}$ dm$^2$ & S1 context reused; unconfirmed\\
+Volume per cell & $1.0513052\times10^{-12}$ L & Derived spherical cell from that area\\
+$\ell_1=\ell_2$ & $2.4\times10^{13}$ dm$^2$mol$^{-1}$s$^{-1}$ & [G]; consistent with S3 marker\\
+Dual uptake $\delta_D$ & $\delta_D=\delta_1=\delta_2$ & Unpublished combination rule\\
+Target replenishment & $s_{ij}=\delta_i\rho_{ij}$ & Explicit closure\\
+Surface dissociation & Microscopic-reversibility correction below & [G] convention; adoption unconfirmed\\
+Initial drug/complex/uptake & Zero & Explicit initial conditions\\
+Scoring time & 24 h & Inferred from plots, not specified in methods\\
+ODE solver & SciPy BDF via solve\_ivp & Reconstruction; paper used integrate.ode\\
+Optimisation & Platypus NSGA-II & Algorithm not reported\\
+Rate search bounds & $10^4$--$10^7$ on; $10^{-3}$--1 off & Figure 5 axes, not confirmed optimiser bounds\\
+Seed; evaluation budget & 8407; 240 for screening run & Demonstration settings\\
+\bottomrule
+\end{longtable}
+[M] actually reports nonlinear elimination, with $V_{\max}=1020(WBC/(10\times10^9\,\mathrm{L^{-1}}))^{0.194}\,\mu$g/h and $K_m=338\,\mu$g/L. This is not equivalent to a fixed $CL$. [P] shows $CL$ schematically without supplying its equation/value. Importing [M]'s nonlinear elimination together with explicit target binding could double-count target-mediated removal. Therefore the code uses a labelled illustrative linear $CL$, rather than claiming to recover the published PK.
+
+\section{From dissociation constant to avidity: step by step}
+\subsection{One antibody arm}
+For $C+R_i\rightleftharpoons B_i$,
+\begin{equation}
+ v_i=k_{\mathrm{on},i}C R_i-k_{\mathrm{off},i}B_i,
+ \qquad K_{D,i}=\frac{k_{\mathrm{off},i}}{k_{\mathrm{on},i}}.
+\end{equation}
+At equilibrium without internalisation, $B_i/R_i=C/K_{D,i}$. For an isolated single target with fixed total density, $\theta=C/(C+K_D)$. This is an explanatory limiting case, not the coupled ADC model's cell-kill formula.
+
+With turnover/internalisation at rate $\delta$, a single-complex steady state instead contains $K_D^{\rm app}=(k_{off}+\delta)/k_{on}$. Two candidates with the same $K_D$ can still differ dynamically: association competes with exposure decay, and dissociation competes with uptake and rebinding. Thus the four rates, not just two ratios, remain the design variables.
+
+\subsection{Second-arm capture and escape}
+The reaction topology in each cell population is
+\begin{align}
+ C_c+R_1&\rightleftharpoons B_1,& C_c+R_2&\rightleftharpoons B_2,\\
+ B_1+R_2&\rightleftharpoons D,&B_2+R_1&\rightleftharpoons D.
+\end{align}
+Here a molecule in $D$ is one ADC carrying one payload, but occupies two receptors. Counting $D$ twice in payload uptake is incorrect.
+
+For the source-reference diffusion model,
+\begin{equation}
+ \ell\simeq4(\mathcal D_1+\mathcal D_2)N_A.
+\end{equation}
+With each membrane diffusivity $5\times10^{-10}$ cm$^2$/s $=5\times10^{-12}$ dm$^2$/s, $\ell\simeq2.4\times10^{13}$ dm$^2$mol$^{-1}$s$^{-1}$. At free-target density $10^{-10}$ mol/dm$^2$, $\ell R\simeq2400$ s$^{-1}$. It is this pseudo-first-order rate, not the numerical 2D constant alone, that can be compared with $k_{off}$ in s$^{-1}$. Depletion of free targets reduces it.
+
+After one bond breaks, the remaining bound antibody can either detach or recapture the other target. An illustrative conditional rebinding probability is
+\begin{equation}
+ P(\mathrm{recapture}\mid B_1)=\frac{\ell_2R_2}{\ell_2R_2+k_{off,1}+\delta_1}.
+\end{equation}
+This is a competing-rates interpretation, not an additional fitted equation from [P]. For a single-positive healthy cell, $R_2=0$, so this rescue pathway is absent. Dual-positive healthy cells retain avidity; they are not inherently spared.
+
+\subsection{Surface off-rates: an important unresolved detail}
+Use $q_1$ for $D\to B_2+R_1$ and $q_2$ for $D\to B_1+R_2$. The Sengers cycle condition is
+\begin{equation}
+ k_{on,1}k_{off,2}\ell_2q_1
+ =k_{off,1}k_{on,2}q_2\ell_1.
+\end{equation}
+Choosing $q_2=k_{off,2}$ gives
+\begin{equation}
+ q_1=k_{off,1}\frac{k_{on,2}\ell_2}{k_{on,1}\ell_1}.
+\end{equation}
+For equal 2D rates, this is Sengers' correction. For Figure 8's tabulated rates it gives $q_1=5$ s$^{-1}$, $q_2=1$ s$^{-1}$. Simply copying the corresponding first-binding off-rates would give $(1,1)$ and violate this cycle condition for those on-rates. [P] does not reveal which convention it implemented. Both conventions are selectable in the code; neither should be silently attributed to the authors. The extension to unequal $\ell_i$ in the diffusion sweep is our explicit generalisation of the cycle condition.
+
+\section{Full executable ODE system: reconstructed, not quoted}
+The published [P] ODE system cannot be transcribed because it is absent. The following complete system realises its described mechanisms with the explicit closures above. Setting uptake/turnover to zero and prescribing $C_c$ recovers the three bound-state equations and target balances of the Sengers binding topology.
+
+\subsection{Population-specific fluxes and receptor dynamics}
+For each $j\in\{T,H1,H2,H12\}$, define
+\begin{align}
+ v_{1j}&=k_{on,1}C_cR_{1j}-k_{off,1}B_{1j},\\
+ v_{2j}&=k_{on,2}C_cR_{2j}-k_{off,2}B_{2j},\\
+ w_{1j}&=\ell_1B_{2j}R_{1j}-q_1D_j,\\
+ w_{2j}&=\ell_2B_{1j}R_{2j}-q_2D_j,\\
+ J_j&=\delta_1B_{1j}+\delta_2B_{2j}+\delta_DD_j.
+\end{align}
+Then
+\begin{align}
+ \dot R_{1j}&=s_{1j}-\delta_1R_{1j}-v_{1j}-w_{1j},\\
+ \dot R_{2j}&=s_{2j}-\delta_2R_{2j}-v_{2j}-w_{2j},\\
+ \dot B_{1j}&=v_{1j}-w_{2j}-\delta_1B_{1j},\\
+ \dot B_{2j}&=v_{2j}-w_{1j}-\delta_2B_{2j},\\
+ \dot D_j&=w_{1j}+w_{2j}-\delta_DD_j,\\
+ \dot A_j&=\frac{a_j}{v_j}J_j.
+\end{align}
+Here $s_{ij}=\delta_i\rho_{ij}$. For the equal turnover closure $\delta_1=\delta_2=\delta_D=\delta$, initial target totals remain constant:
+\begin{equation}
+ R_{1j}+B_{1j}+D_j=\rho_{1j},\qquad
+ R_{2j}+B_{2j}+D_j=\rho_{2j}.
+\end{equation}
+Therefore one can equivalently eliminate free receptors algebraically. For unequal turnover rates or a different dual-complex internalisation rule, this conservation identity need not hold; the explicit receptor ODEs are then required. The reconstruction exposes a dual-turnover multiplier for auditing this uncertainty.
+
+\subsection{PK coupling and dose}
+\begin{align}
+ u(t)&=\begin{cases}D_0/\tau,&0\leq t<\tau,\\0,&t\geq\tau,\end{cases}\\
+ V_c\dot C_c&=u(t)-CL\,C_c-Q(C_c-C_p)-\sum_j S_j(v_{1j}+v_{2j}),\\
+ V_p\dot C_p&=Q(C_c-C_p),\\
+ \dot M_{\rm elim}&=CL\,C_c.
+\end{align}
+Only solution-to-surface binding exchanges drug with the central compartment. Second-arm binding moves already surface-bound drug; it does not remove another central antibody. Internalisation removes bound ADC and is already represented in $J_j$; subtracting it again from free central ADC would double-count removal.
+
+Initial conditions are $C_c=C_p=B_{1j}=B_{2j}=D_j=A_j=M_{\rm elim}=0$, $R_{ij}=\rho_{ij}$. Populations with absent targets start at zero and have zero synthesis for that target. The no-target population has zero uptake and kill and need not have explicit states. This implementation has 24 population states, two PK states, and one clearance accounting state: 27 ODEs.
+
+\subsection{Dimensional conversion and mass-balance check}
+$J_j$ is mol dm$^{-2}$s$^{-1}$. Multiplying by area per cell gives mol cell$^{-1}$s$^{-1}$; dividing by cell volume gives M/s. Cell number is needed for PK depletion, whereas per-cell intracellular concentration depends on area/volume. Missing cell volume and cell burden therefore prevent exact numeric replication even if the binding equations are known.
+
+The conservation diagnostic is
+\begin{equation}
+ V_cC_c+V_pC_p+\sum_j S_j(B_{1j}+B_{2j}+D_j)
+ +\sum_jN_jv_jA_j+M_{\rm elim}
+ =\int_0^t u(s)\dd s.
+\end{equation}
+This is a model verification identity, not an efficacy objective. The solver uses scaled states to avoid treating $10^{-10}$ surface densities as numerical zero and splits integration exactly at the infusion stop.
+
+\subsection{Bivalent monospecific comparison}
+It is incorrect to obtain the monospecific comparator merely by deleting T2 from a bispecific molecule: that would leave a monovalent comparator. Let $R,B,D$ denote free identical target, singly bound ADC, and doubly bound ADC. A standard identical-arm reconstruction is
+\begin{align}
+ v&=2k_{on}C_cR-k_{off}B,&w&=\ell BR-2k_{off}D,\\
+ \dot R&=s-\delta R-v-w,&\dot B&=v-w-\delta B,\\
+ \dot D&=w-\delta_DD,&\dot A&=(a/v_{cell})(\delta B+\delta_DD).
+\end{align}
+The two factors of two count the two initially available arms and the two bonds that can break. First binding consumes one target; second binding consumes a second. At equal turnover, $R+B+2D=\rho$, occupancy is $(B+2D)/\rho$, but bound ADC is $B+D$. Replace the central binding sink by $\sum_jS_jv_j$. Only T1-expressing cells participate. [P] confirms bivalence/avidity but not these statistical-factor conventions, which must be checked against author code for exact reproduction.
+
+\section{Occupancy, internalisation, and cell kill}
+\subsection{Readouts}
+\begin{align}
+ \theta_{1j}(t)&=\frac{B_{1j}+D_j}{\rho_{1j}},&
+ \theta_{2j}(t)&=\frac{B_{2j}+D_j}{\rho_{2j}},\\
+ A_j(t)&=\frac{a_j}{v_j}\int_0^t J_j(s)\dd s,&
+ e_j(t)&=\frac{A_j(t)}{EC_{50}+A_j(t)}.
+\end{align}
+Occupancy is undefined for an absent target; code reports zero for plotting convenience only. When target totals vary, distinguish occupancy relative to baseline from occupancy relative to instantaneous total receptors. Here equal turnover keeps them equal.
+
+Equation (1) of [P] labels $A/(EC_{50}+A)$ as ``Cell kill (\%)'', but the expression returns a fraction from 0 to 1. Correct percentage display is
+\begin{equation}\boxed{\mathrm{Kill}_j(\%)=100\frac{A_j}{EC_{50}+A_j}.}\end{equation}
+``Without a Hill coefficient'' means a Hill exponent of one in this equation, not zero. It has $E_{\max}=1$ as a fraction (100\% on a percentage scale). $A=EC_{50}$ gives 50\% kill; $A=9EC_{50}$ gives 90\%; $A=99EC_{50}$ gives 99\%. For 4 $\mu$M potency these concentrations are 4, 36, and 396 $\mu$M. A concentration around 280 $\mu$M gives 98.59\%, consistent in scale with Figure 6. This is a numerical illustration, not digitised data.
+
+\subsection{Healthy-cell averaging: the correct order}
+\begin{align}
+ E(t)&=e_T(t),\\
+ H(t)&=0.79(0)+0.10e_{H1}(t)+0.10e_{H2}(t)+0.01e_{H12}(t),\\
+ \overline A_H(t)&=0.10A_{H1}+0.10A_{H2}+0.01A_{H12},\\
+ \mathcal R(t)&=E(t)/H(t)\quad(H>0).
+\end{align}
+Generally $H\ne\overline A_H/(EC_{50}+\overline A_H)$. Compute the nonlinear response \emph{before} averaging. The paper's healthy intracellular mean and its healthy-cell-kill curve are different summaries. With no target-independent toxicity, the model's absolute healthy-kill ceiling is 21\%, since 79\% of healthy cells have no targets. If dual-positive healthy cells alone are completely killed, total healthy kill is already 1\%. This makes the strict $H<0.01$ constraint demanding.
+
+There is no published tumor growth/death ODE, delayed killing, repeated-dose schedule, or cell-cycle model. The Emax readout maps cumulative intracellular delivery directly to a kill fraction. It is not a time-integrated kill hazard and should not be integrated a second time.
+
+\subsection{Why equal T1/T2 densities still produce selectivity}
+Equal density means equal \emph{within tumor} ($\rho_{1T}=\rho_{2T}$), not equal tumor versus healthy expression. Healthy expressors have a quarter of the corresponding density, and most express only one or neither target. The computational chain is:
+\begin{enumerate}
+\item Set both tumor densities to $10^{-10}$ mol/dm$^2$; set healthy densities and frequencies from Table 1.
+\item Choose all four binding rates and calculate their monovalent $K_D$s for interpretation.
+\item Integrate infusion, distribution, clearance, and binding to obtain the shared $C_c(t)$.
+\item Integrate single and dual complexes separately in each population. Equal target properties imply exchange symmetry, not equal uptake across populations.
+\item Integrate $J_j$ to $A_j$. Weak single binding can spare large healthy sinks while dual binding retains tumor uptake.
+\item Apply Emax separately, then average healthy effects and score $(E,H)$ at the endpoint.
+\end{enumerate}
+Lower affinity does not guarantee higher efficacy for arbitrary rates. If association becomes too slow or dual capture fails, tumor uptake also falls. Reduced healthy target sinks can additionally preserve free-drug exposure; this is why coupling to PK matters.
+
+\section{Exactly what is optimised, and what is not reported}
+\subsection{Decision variables and evaluator}
+\begin{equation}
+ \boldsymbol x=(k_{on,1},k_{off,1},k_{on,2},k_{off,2}),\qquad
+ \boldsymbol z=\log_{10}\boldsymbol x.
+\end{equation}
+One candidate is four rate constants, not four fitted cell-kill observations. The evaluator updates binding rates, rebuilds any dependent 2D off-rates, integrates the whole ODE system, and returns endpoint tumor and healthy kill. Model parameters such as dose, potency, density, and population fractions are held fixed within an optimisation scenario.
+
+\subsection{Mathematical statement supported by the methods}
+The stated intent is to maximise efficacy while keeping healthy kill below 1\%. Its constrained form is
+\begin{equation}\boxed{
+ \max_{\boldsymbol x\in\mathcal X} E(t_*;\boldsymbol x)
+ \quad\text{subject to}\quad H(t_*;\boldsymbol x)<0.01.}
+\end{equation}
+If both quantities are separate objectives, an equivalent useful multiobjective specification is
+\begin{equation}\boxed{
+ \min_{\boldsymbol z\in\mathcal Z}
+ \left(-E(t_*;10^{\boldsymbol z}),\ H(t_*;10^{\boldsymbol z})\right),
+ \quad H(t_*;10^{\boldsymbol z})<0.01.}
+\end{equation}
+The article calls the procedure multiobjective and names Platypus, but does not disclose its objective-vector definition, algorithm, selection rule, bounds, termination, seed, or horizon. Therefore the second boxed expression is the reconstruction's explicit implementation of the stated intent, not a recovered line of author code. The efficacy/toxicity ratio in S1 is a plotted diagnostic; it is not stated to be the optimiser's objective. Maximising $E/H$ alone can favour almost inactive compounds when both quantities are tiny.
+
+\subsection{Pareto search and final candidate selection}
+A candidate dominates another if it has at least as much tumor kill and at most as much healthy kill, with strict improvement in one. The nondominated candidates form a Pareto set. In the reconstruction, NSGA-II starts with 16 search-box corners, two specified rate seeds, and random candidates, then evolves candidates in log-rate space, integrates each one, and scores $(-E,H)$ plus feasibility. Among feasible returned candidates, we report the one with highest tumor kill. A small finite evolutionary run is a search demonstration, not proof of a global optimum.
+
+The implemented domain uses Figure 5's displayed ranges:
+\begin{equation}
+ 4\le z_1,z_3\le7,\qquad -3\le z_2,z_4\le0.
+\end{equation}
+The numerical constraint is $H\le0.01-10^{-10}$, so exact 1\% is not accepted merely through inclusive comparison. The optimisation must use fractions; $H<1$ would permit nearly 100\% toxicity. Alternatively, in percentage units it is $100H<1$.
+
+\subsection{Equal-density sweeps versus asymmetric reoptimisation}
+Figure 5a,b sweep the two on-rates with other parameters fixed. Figure 5c,d sweep the two off-rates. Figure 5e,f restrict the model to $k_{on,1}=k_{on,2}$ and $k_{off,1}=k_{off,2}$ and vary the shared values. This is a two-dimensional slice of the four-dimensional design space. The caption/methods do not explicitly state every fixed value for each panel; the reconstruction uses the unoptimised Table 2 values for the unswept rates.
+
+The equal-density selected candidate has both on-rates $10^4$ and off-rates 1. Figure 7 holds that candidate fixed while changing densities; that is a robustness test, not a fresh optimisation at every pixel. Figure 8 uses the unequal-density scenario (20-fold abundance difference) and selected rates $(10^4,1,5\times10^4,1)$. Under the Table 2 values, the less abundant T2 arm has \emph{fivefold stronger}, not weaker, monovalent affinity than in Figure 6.
+
+\section{Complete figure-by-figure workflow}
+\begin{longtable}{p{.17\linewidth}p{.56\linewidth}p{.21\linewidth}}
+\toprule Output & Calculation & Reproduction status\\\midrule\endhead
+Figure 4 & Compare unoptimised bispecific and avidity-enabled monospecific trajectories: RO, uptake, kill & Implemented reconstruction\\
+Figure 5a--d & Separate on-rate and off-rate grids; tumor and healthy endpoint kill & Implemented reconstruction\\
+Figure 5e,f & Shared on-rate/shared off-rate grid & Implemented reconstruction\\
+Figure 6 & Equal-density selected weak-affinity candidate trajectory & Implemented reconstruction\\
+Figure 7 & Fixed Figure 6 candidate; density grid $10^{-12}$--$10^{-8}$ & Implemented reconstruction\\
+Figure 8 & Published asymmetric selected candidate plus independent four-rate search & Implemented reconstruction\\
+Figure S1 & Compute $E/H$ for the Figure 5 grids & Implemented reconstruction\\
+Figure S2 & Monospecific on/off grid & Implemented reconstruction\\
+Figure S3 & Two 2D association constants swept $10^{11}$--$10^{15}$ & Implemented reconstruction\\
+Figure S4 & Fixed optimised candidate; wider low-density grid $10^{-14}$--$10^{-9}$ & Implemented reconstruction\\
+Figure S5 & Reoptimise at $10^{-13}$ mol/dm$^2$, $EC_{50}=10$ nM & Search and selected trajectories implemented; published rates absent\\
+Table S1 & Convert molecules/cell to mol/dm$^2$ & Arithmetic verified; citations inconsistent\\
+\bottomrule
+\end{longtable}
+Heatmap axis ranges above are read visually. Original grid resolutions and contour-generation details are not reported. Initial executable grids use five points per axis, with resolution configurable. The original software is Python 3.12.7, SciPy \texttt{integrate.ode}, and Platypus; the delivered environment records its actual versions separately. Sengers' Monte Carlo experiments are antecedent-model validation, not a reported stage of this 2026 ADC screening workflow.
+
+\section{Inconsistencies and exact-replication blockers}
+\begin{enumerate}
+\item \textbf{Equation (1):} percentage label lacks multiplication by 100. Treat the equation as a fraction and convert for display/thresholds.
+\item \textbf{Table 1:} frequencies sum to 100.03\%; healthy weighting is interpretable, total cell normalisation is ambiguous.
+\item \textbf{Table 2:} Figure 4a--c are labelled monospecific and 4d--f bispecific, opposite the figure caption, plots, and narrative. Use the figure's top-row bispecific/bottom-row monospecific identities.
+\item \textbf{Figure 8 narrative:} says affinity for less abundant target is reduced relative to Figure 6. Table 2 raises its on-rate fivefold at unchanged off-rate; $K_D$ decreases from 100 to 20 $\mu$M, so affinity increases.
+\item \textbf{Toxicity constraint:} Section 2.4 states less than 1\%, while the displayed Figure 8 healthy-kill trace ends visually around several percent. This is an approximate visual observation, not an exact digitisation; it cannot establish constraint satisfaction. Ask for objective definitions, feasibility reports, and the actual selected solution.
+\item \textbf{S1 references and TROP2 formatting:} citation numbering does not align with the main bibliography, and the upper-bound notation is malformed.
+\item \textbf{S5:} says low $K_D$ and specifies potency/density, but does not give selected binding rates. No exact candidate can be reconstructed from its caption alone.
+\item \textbf{Unpublished implementation:} PK elimination law/values, cell burden and volume, synthesis/recycling rules, dual uptake, surface dissociation, monospecific statistical factors, solver settings, search settings, endpoint, and raw outputs remain missing.
+\end{enumerate}
+These are not reasons to stop implementing the known mechanisms. They are reasons to label outputs accurately and avoid equating a plausible reconstruction with exact replication.
+
+\section{Code, execution, and verification}
+The accompanying \texttt{replication/model.py} implements the equations above; \texttt{run.py} creates trajectories, seven sweep families, and two Platypus searches; \texttt{test\_model.py} checks conservation, target-free and drug-free limits, symmetry, receptor accounting, Emax weighting, detailed balance, and tighter-tolerance agreement. Every generated plot and manifest identifies reconstruction status.
+
+From the project directory:
+\begin{verbatim}
+python3 -m venv --system-site-packages .venv
+.venv/bin/python -m pip install -r replication/requirements.txt
+.venv/bin/python -m unittest discover -s replication -v
+.venv/bin/python replication/run.py --grid 5 --nfe 240 --seed 8407
+\end{verbatim}
+For a denser replication study after author parameters arrive, increase grid resolution and evaluation budgets and run independent seeds. This is a required future replication stage, not evidence that the initial selected candidate is globally optimal. Do not tune missing values to visually match the published plots and then call that independent validation.
+
+\subsection{Initial numeric results and interpretation}
+The demonstration inputs give approximately 60.15\% tumor / 2.69\% healthy kill for the unoptimised bispecific; 53.28\% / 2.44\% for the monospecific; 93.12\% / 0.794\% for Figure 6's rates; and 91.20\% / 1.170\% for Figure 8's rates. These are \textbf{not the paper's results}. Their disagreement with the published curves confirms that recovering missing implementation details remains necessary. In particular the Figure 8 tabulated candidate is not feasible under the reconstruction's 1\% constraint.
+
+Mass balance closes to much better than $10^{-6}$ of administered dose in the baseline checks. Passing these checks establishes internal implementation consistency, not biological validation or numerical replication of the authors' results. Detailed test results, actual runtime versions, optimisation outputs, and the input manifest accompany the code.
+
+\subsection{Completed screening runs}
+All seven $5\times5$ grids and both 240-evaluation NSGA-II searches completed (seed 8407). The unequal-density search returned no feasible solution; this finite search does not prove infeasibility. The low-density search returned a selected candidate with 55.52\% tumor kill and 0.9162\% healthy kill, with rates
+\[
+(k_{on,1},k_{off,1},k_{on,2},k_{off,2})
+=(10^4,\ 0.121878,\ 10^4,\ 0.650220).
+\]
+This candidate was re-integrated at tighter tolerance and remained below 1\% healthy kill. These are reconstructed-search outputs, not the missing published Figure S5 rates. The Pareto set, evaluated candidates, selected trajectory and complete input configuration are saved. Eight scientific consistency tests passed. No claim of search convergence or global optimality is made.
+
+\section{What is needed before claiming exact replication}
+Request the original Python code and environment; the complete parameter table with units; PK equations; total population sizes, areas and volumes; receptor synthesis/turnover and dual-complex trafficking rules; 2D on/off-rate mapping; monospecific degeneracy factors; solver settings and initial conditions; optimisation algorithm, objectives, constraints, bounds, seeds and stopping conditions; Figure S5 rates; raw time courses and heatmap arrays; and clarification of the identified inconsistencies.
+
+Then freeze these inputs, rerun Figures 4--8 and S1--S5, compare numeric outputs against author arrays with documented tolerances, and archive the baseline before introducing any improvements. The current deliverable completes the evidence audit and a runnable workflow reconstruction; exact quantitative replication is unresolved.
+
+\section*{References and access notes}\addcontentsline{toc}{section}{References and access notes}
+[P] Stoddard et al. (2026), supplied 17-page PDF. \href{https://doi.org/10.20935/AcadDrug8407}{doi:10.20935/AcadDrug8407}.
+
+[S] Stoddard et al. (2026), supplied supplementary materials, three pages, same DOI.
+
+[G] Sengers et al. (2016), \emph{Modeling bispecific monoclonal antibody interaction with two cell membrane targets indicates the importance of surface diffusion}. \href{https://pmc.ncbi.nlm.nih.gov/articles/PMC4968105/}{Open full text}. Source-reference equations and assumptions are used to derive the reconstruction; its original in-vitro calibration is not transferred as ADC validation.
+
+[M] Mould et al. (2007), \emph{Population pharmacokinetics--pharmacodynamics of alemtuzumab}. \href{https://pmc.ncbi.nlm.nih.gov/articles/PMC2000651/}{Open full text}.
+
+Platypus documentation: \href{https://platypus.readthedocs.io/en/latest/getting-started.html}{Getting started}. Consulted for implementation, not as evidence of the authors' chosen algorithm.
+\end{document}
