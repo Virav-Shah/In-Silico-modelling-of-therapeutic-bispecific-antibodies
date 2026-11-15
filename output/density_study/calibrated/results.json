@@ -1,0 +1,137 @@
+{
+  "figure7": {
+    "points": 961,
+    "max_exchange_asymmetry_percentage_points": 5.1954060609205044e-08,
+    "tumor_range_pct": [
+      5.027352691892113,
+      99.52280378426312
+    ],
+    "healthy_range_pct": [
+      0.015409476447082512,
+      8.095044671825958
+    ]
+  },
+  "S4": {
+    "points": 961,
+    "max_exchange_asymmetry_percentage_points": 1.0293099705904751e-11,
+    "tumor_range_pct": [
+      0.004967000308419795,
+      99.49984935007686
+    ],
+    "healthy_range_pct": [
+      0.0001223885368626296,
+      4.1090602047232885
+    ]
+  },
+  "searches": [
+    {
+      "seed": 8407,
+      "algorithm_nfe": 960,
+      "evaluator_calls": 942,
+      "best_feasible": null,
+      "minimum_healthy_observed": {
+        "seed": 8407,
+        "kon1": 10000.0,
+        "koff1": 1.0,
+        "kon2": 10000.0,
+        "koff2": 1.0,
+        "tumor_kill_pct": 98.56988158907428,
+        "healthy_kill_pct": 3.9391220414054318
+      }
+    },
+    {
+      "seed": 2026,
+      "algorithm_nfe": 960,
+      "evaluator_calls": 947,
+      "best_feasible": null,
+      "minimum_healthy_observed": {
+        "seed": 2026,
+        "kon1": 10000.0,
+        "koff1": 1.0,
+        "kon2": 10000.0,
+        "koff2": 1.0,
+        "tumor_kill_pct": 98.56988158907428,
+        "healthy_kill_pct": 3.9391220414054318
+      }
+    }
+  ],
+  "selected": null,
+  "candidates": [
+    {
+      "name": "equal_reference",
+      "kon1": 10000.0,
+      "koff1": 1.0,
+      "kon2": 10000.0,
+      "koff2": 1.0,
+      "rho1": 1e-10,
+      "rho2": 1e-10,
+      "tumor_kill_pct": 98.5915492312195,
+      "healthy_kill_pct": 1.7687417660710192,
+      "tumor_uptake_uM": 279.9999869830993,
+      "tumor_T2_occupancy_pct": 33.19028461935933
+    },
+    {
+      "name": "unequal_before_reoptimization",
+      "kon1": 10000.0,
+      "koff1": 1.0,
+      "kon2": 10000.0,
+      "koff2": 1.0,
+      "rho1": 1e-09,
+      "rho2": 5e-11,
+      "tumor_kill_pct": 98.56988155814204,
+      "healthy_kill_pct": 3.939122138991701,
+      "tumor_uptake_uM": 275.69711339456165,
+      "tumor_T2_occupancy_pct": 82.91877790160761
+    },
+    {
+      "name": "unequal_paper_table2",
+      "kon1": 10000.0,
+      "koff1": 1.0,
+      "kon2": 50000.0,
+      "koff2": 1.0,
+      "rho1": 1e-09,
+      "rho2": 5e-11,
+      "tumor_kill_pct": 98.56657305010621,
+      "healthy_kill_pct": 4.588985821762802,
+      "tumor_uptake_uM": 275.0515415031369,
+      "tumor_T2_occupancy_pct": 82.21369445794558
+    }
+  ],
+  "checks": [
+    {
+      "case": "equal_reference",
+      "endpoint_solver_error_fraction": 4.1111447579567084e-11,
+      "mass_relative_error": 1.4823076576950256e-15
+    },
+    {
+      "case": "unequal_before",
+      "endpoint_solver_error_fraction": 3.2416742901109075e-11,
+      "mass_relative_error": 2.2234614865425384e-14
+    },
+    {
+      "case": "paper_table2",
+      "endpoint_solver_error_fraction": 2.1448003095780876e-11,
+      "mass_relative_error": 2.1811098391798234e-14
+    },
+    {
+      "case": "corner_1e-12_1e-12",
+      "endpoint_solver_error_fraction": 2.849408278771115e-10,
+      "mass_relative_error": 2.1175823681357508e-16
+    },
+    {
+      "case": "corner_1e-12_1e-08",
+      "endpoint_solver_error_fraction": 3.617683930201565e-11,
+      "mass_relative_error": 1.2705494208814505e-15
+    },
+    {
+      "case": "corner_1e-08_1e-12",
+      "endpoint_solver_error_fraction": 3.617683930201565e-11,
+      "mass_relative_error": 1.2705494208814505e-15
+    },
+    {
+      "case": "corner_1e-08_1e-08",
+      "endpoint_solver_error_fraction": 2.934080062244604e-12,
+      "mass_relative_error": 1.6093625997831706e-14
+    }
+  ]
+}

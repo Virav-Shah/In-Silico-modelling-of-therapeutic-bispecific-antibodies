@@ -1,0 +1,66 @@
+{
+  "profile": "calibrated",
+  "frozen_parameters": {
+    "kon1": 10000.0,
+    "koff1": 1,
+    "kon2": 10000.0,
+    "koff2": 1,
+    "rho1": 1e-10,
+    "rho2": 1e-10,
+    "k2d1": 24000000000000.0,
+    "k2d2": 24000000000000.0,
+    "turnover": 0.0005555555555555556,
+    "dual_turnover_factor": 1.0,
+    "ec50": 4e-06,
+    "dose": 4e-06,
+    "infusion_s": 7200,
+    "end_s": 86400,
+    "vc": 11.3,
+    "vp": 41.5,
+    "q_l_h": 1.05,
+    "cl_l_h": 0.1,
+    "total_cells": 4726395687804.054,
+    "area_dm2": 5e-08,
+    "cell_volume_l": 4.1329905649510757e-13,
+    "surface_off_rule": "sengers",
+    "mode": "bispecific"
+  },
+  "density_rule": "Each healthy expressed target remains 25% of corresponding tumor target; population frequencies unchanged",
+  "scoring_time_h": 24,
+  "figure7_log10_density_range": [
+    -12,
+    -8
+  ],
+  "S4_log10_density_range": [
+    -14,
+    -9
+  ],
+  "grid_per_axis": 31,
+  "optimizer_log10_bounds": [
+    [
+      4,
+      7
+    ],
+    [
+      -3,
+      0
+    ],
+    [
+      4,
+      7
+    ],
+    [
+      -3,
+      0
+    ]
+  ],
+  "bounds_provenance": "Inferred from Figure 5 axes; original optimiser bounds unreported",
+  "optimizer": "NSGAII, population 48; original algorithm unreported",
+  "seeds": [
+    8407,
+    2026
+  ],
+  "nfe_per_seed": 960,
+  "healthy_fraction_constraint": "strictly < 0.01",
+  "source": "Stoddard et al. 2026 DOI 10.20935/AcadDrug8407, sections 2.3/2.4/3.4, Table 1/2, Figs 7/8/S4"
+}

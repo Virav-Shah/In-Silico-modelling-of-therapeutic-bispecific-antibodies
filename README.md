@@ -97,3 +97,29 @@ pdflatex -interaction=nonstopmode -halt-on-error prototype_addendum.tex
 - [Mould et al. (2007)](https://pmc.ncbi.nlm.nih.gov/articles/PMC2000651/): cited PK reference. Its nonlinear elimination is **not** reproduced by our illustrative linear clearance.
 
 The implementation is a reconstruction developed in this project, not recovered author software. The supplied source PDFs are referenced rather than redistributed. Generated plots and tabular outputs are included; environments, caches, temporary files and duplicate ZIP archives are excluded.
+
+## Section 3.4: density sweeps and unequal-density reoptimisation
+
+The new [density study](output/density_study/calibrated/density_reoptimization_report.pdf) follows the paper's sequence: hold the published Figure 6 antibody fixed while independently sweeping T1/T2 densities (Figure 7 and S4), then compare unchanged and Table 2 rates at the Figure 8 unequal-density pair and run an independent constrained search. Each sweep contains 31 × 31 ODE simulations; healthy expression stays at 25% of the corresponding tumour expression. Existing calibrated physiology is frozen without fitting Figures 7–8.
+
+```bash
+python replication/density_study.py --grid 31 --nfe 960
+python replication/report_density_study.py
+```
+
+The search uses NSGA-II with two seeds and the strict healthy-kill <1% constraint. Rate bounds are inferred from Figure 5 axes, **not disclosed author optimisation bounds**. The algorithm, evaluation budget and unrecovered physiological inputs are reconstruction choices. The published unequal-density rates yield 98.57% tumour kill and 4.59% healthy kill in our model, versus 3.94% healthy kill before the change: this is **not successful numerical replication of the claimed reoptimisation**.
+
+[Code](replication/density_study.py), [LaTeX report source](output/density_study/calibrated/density_reoptimization_report.tex), [all inputs](output/density_study/calibrated/manifest.json), [results and numerical checks](output/density_study/calibrated/results.json), and [endpoint comparison](output/density_study/calibrated/candidate_comparison.csv) are available. The same output directory contains full grid CSVs, time courses, search evaluations and labelled plots. Solver agreement, conservation and symmetry checks test numerical correctness; they do not establish agreement with the paper.
+
+## Final density-specific design model
+
+The [final optimisation report](output/final_density_optimization/final_density_optimization_report.pdf) documents nine independently optimised density/potency scenarios using **one frozen physiological calibration**. It includes complete equations, modelling decisions, selected rates, transfer-versus-reoptimisation comparisons, smooth trajectories and sensitivity checks. [Exact result table](output/final_density_optimization/summary.csv) · [Readable summary](output/final_density_optimization/RESULTS.md) · [Configuration](output/final_density_optimization/configuration.json).
+
+```bash
+python replication/final_density_optimization.py --workers 4
+python replication/report_final_density.py
+```
+
+The model uses explicit target-mediated removal plus slow background clearance, reference spherical geometry, calibrated accessible cell burden/effective intracellular volume, and a target-label-symmetric detailed-balance closure. It explores broader binding-rate bounds than Figure 5. It produces selective **nominal model predictions**, not exact author-model replication, experimentally reachable antibody sequences or certified global optima. All selected designs lie near at least one search bound. Some physiological perturbations exceed 1% healthy kill despite nominal feasibility; see the report's sensitivity table. Low density limits efficacy unless payload potency is changed, which is labelled separately.
+
+Nine unit tests and per-design BDF/Radau, drug conservation and target-exchange checks passed. Existing equal-membrane-rate baseline calculations are unaffected by the general detailed-balance correction described in [the implementation erratum](output/final_density_optimization/IMPLEMENTATION_NOTES.md).

@@ -4,6 +4,18 @@ import numpy as np
 from model import *
 
 class ModelTests(unittest.TestCase):
+    def test_symmetric_closure_target_exchange(self):
+        p=replace(Parameters(),surface_off_rule='symmetric',rho1=1e-9,rho2=5e-11,
+                  kon1=1200,kon2=37000,koff1=.21,koff2=2.3,k2d1=1.8e13,k2d2=3.2e13)
+        other=replace(p,rho1=p.rho2,rho2=p.rho1,kon1=p.kon2,kon2=p.kon1,
+                      koff1=p.koff2,koff2=p.koff1,k2d1=p.k2d2,k2d2=p.k2d1)
+        a=simulate(p);b=simulate(other)
+        np.testing.assert_allclose(a['tumor'],b['tumor'],atol=1e-7)
+        np.testing.assert_allclose(a['healthy'],b['healthy'],atol=1e-7)
+        self.assertLess(max(abs(a['mass_error']))/p.dose,1e-6)
+        correction=np.sqrt(p.kon2*p.k2d1/(p.kon1*p.k2d2))
+        q1,q2=p.koff1*correction,p.koff2/correction
+        self.assertAlmostEqual(p.kon1*p.koff2*p.k2d2*q1/(p.koff1*p.kon2*q2*p.k2d1),1.)
     def test_drug_mass_balance(self):
         for p in SCENARIOS.values():
             r=simulate(p);self.assertLess(max(abs(r['mass_error']))/p.dose,1e-6)

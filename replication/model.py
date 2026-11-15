@@ -29,7 +29,7 @@ class Parameters:
     total_cells: float = 3e13  # DEMONSTRATION ONLY; not reported
     area_dm2: float = 5e-8  # Table S1 conversion assumption, adoption unconfirmed
     cell_volume_l: float = 1.0513052175e-12  # sphere from 500 um²; reconstruction
-    surface_off_rule: str = 'sengers'  # or 'same_bond'; adoption unconfirmed
+    surface_off_rule: str = 'sengers'  # 'same_bond' or label-symmetric 'symmetric'
     mode: str = 'bispecific'
 
 NAMES = ('tumor','healthy_T1','healthy_T2','healthy_T12')
@@ -58,7 +58,12 @@ def rhs(t,y,p,infusing):
     if p.mode == 'bispecific':
         # q1 loses T1 from D -> B2; q2 loses T2 from D -> B1.
         q2 = p.koff2
-        q1 = p.koff1 if p.surface_off_rule == 'same_bond' else p.koff1*p.kon2*p.k2d2/(p.kon1*p.k2d1)
+        q1 = p.koff1 if p.surface_off_rule == 'same_bond' else p.koff1*p.kon2*p.k2d1/(p.kon1*p.k2d2)
+        if p.surface_off_rule == 'symmetric':
+            # Detailed balance with the log correction shared equally by both arms.
+            # Preserves q1*q2=koff1*koff2 and invariance to exchanging target labels.
+            correction = np.sqrt(p.kon2*p.k2d1/(p.kon1*p.k2d2))
+            q1, q2 = p.koff1*correction, p.koff2/correction
         v1 = p.kon1*cc*r1-p.koff1*b1
         v2 = p.kon2*cc*r2-p.koff2*b2
         w1 = p.k2d1*b2*r1-q1*d
@@ -92,7 +97,7 @@ def rhs(t,y,p,infusing):
     return out
 
 def simulate(p=Parameters(), points=121, rtol=1e-7, atol=1e-10, method="BDF"):
-    if p.surface_off_rule not in ('sengers','same_bond'): raise ValueError('invalid off rule')
+    if p.surface_off_rule not in ('sengers','same_bond','symmetric'): raise ValueError('invalid off rule')
     if p.mode not in ('bispecific','monospecific'): raise ValueError('invalid mode')
     if not 0 < p.infusion_s < p.end_s: raise ValueError('require 0 < infusion < horizon')
     y0 = initial(p)
